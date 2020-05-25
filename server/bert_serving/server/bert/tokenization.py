@@ -24,6 +24,7 @@ import unicodedata
 import six
 import tensorflow as tf
 
+import sentencepiece as sp # bert-japanese/src/tokenization_sentencepiece.pyから
 
 def convert_to_unicode(text):
     """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
@@ -108,32 +109,49 @@ def whitespace_tokenize(text):
     return tokens
 
 
-class FullTokenizer(object):
+class FullTokenizer(object): # bert-japanese/src/tokenization_sentencepiece.pyから置換
     """Runs end-to-end tokenziation."""
 
-    def __init__(self, vocab_file, do_lower_case=True):
+    def __init__(self, model_file, vocab_file, do_lower_case=True):
+        self.tokenizer = SentencePieceTokenizer(model_file, do_lower_case=do_lower_case)
         self.vocab = load_vocab(vocab_file)
         self.inv_vocab = {v: k for k, v in self.vocab.items()}
-        self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
-        self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
 
     def tokenize(self, text):
-        split_tokens = []
-        for token in self.basic_tokenizer.tokenize(text):
-            for sub_token in self.wordpiece_tokenizer.tokenize(token):
-                split_tokens.append(sub_token)
-
+        split_tokens = self.tokenizer.tokenize(text)
         return split_tokens
 
     def convert_tokens_to_ids(self, tokens):
-        return convert_by_vocab(self.vocab, tokens)
+        """Id of <unk> is assumed as 0 accroding to sentencepiece"""
+        return convert_by_vocab(self.vocab, tokens, unk_info=0)
 
     def convert_ids_to_tokens(self, ids):
-        return convert_by_vocab(self.inv_vocab, ids)
+        """Token of unknown word is assumed as <unk> according to sentencepiece"""
+        return convert_by_vocab(self.inv_vocab, ids, unk_info="<unk>")
 
-    def mark_unk_tokens(self, tokens, unk_token='[UNK]'):
+    def mark_unk_tokens(self, tokens, unk_token='[UNK]'): # 元のメソッドを残した。
         return [t if t in self.vocab else unk_token for t in tokens]
 
+class SentencePieceTokenizer(object): # bert-japanese/src/tokenization_sentencepiece.pyから
+    """Runs SentencePiece tokenization (from raw text to tokens list)"""
+
+    def __init__(self, model_file=None, do_lower_case=True):
+        """Constructs a SentencePieceTokenizer."""
+        self.tokenizer = sp.SentencePieceProcessor()
+        if self.tokenizer.Load(model_file):
+            print("Loaded a trained SentencePiece model.")
+        else:
+            print("You have to give a path of trained SentencePiece model.")
+            sys.exit(1)
+        self.do_lower_case = do_lower_case
+
+    def tokenize(self, text):
+        """Tokenizes a piece of text."""
+        text = convert_to_unicode(text)
+        if self.do_lower_case:
+            text = text.lower()
+        output_tokens = self.tokenizer.EncodeAsPieces(text)
+        return output_tokens
 
 class BasicTokenizer(object):
     """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
